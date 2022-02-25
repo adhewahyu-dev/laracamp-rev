@@ -6,15 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Models\Checkout;
 use Illuminate\Http\Request;
 use App\Http\Requests\User\Checkout\Store;
+use App\Mail\Checkout\AfterCheckout;
 use App\Models\Camp;
 use Auth;
 use Mail;
-use App\Mail\Checkout\AfterCheckout;
 use Str;
 use Midtrans;
 
 class CheckoutController extends Controller
 {
+
     public function __construct()
     {
         Midtrans\Config::$serverKey = env('MIDTRANS_SERVERKEY');
@@ -40,8 +41,8 @@ class CheckoutController extends Controller
      */
     public function create(Camp $camp, Request $request)
     {
-        if($camp->isRegistered){
-            $request->session()->flash("error", "You already registered on {$camp->title} camp.");
+        if ($camp->isRegistered) {
+            $request->session()->flash('error', "You already registered on {$camp->title} camp.");
             return redirect(route('user.dashboard'));
         }
         return view('checkout.create', [
@@ -57,8 +58,7 @@ class CheckoutController extends Controller
      */
     public function store(Store $request, Camp $camp)
     {
-        // return $request->all();
-        // mappin request data
+        // mapping request data
         $data = $request->all();
         $data['user_id'] = Auth::id();
         $data['camp_id'] = $camp->id;
@@ -68,12 +68,15 @@ class CheckoutController extends Controller
         $user->email = $data['email'];
         $user->name = $data['name'];
         $user->occupation = $data['occupation'];
+        $user->phone = $data['phone'];
+        $user->address = $data['address'];
         $user->save();
 
-        // create table checkout
+        // create checkout
         $checkout = Checkout::create($data);
         $this->getSnapRedirect($checkout);
-        //sending email
+
+        // sending email
         Mail::to(Auth::user()->email)->send(new AfterCheckout($checkout));
 
         return redirect(route('checkout.success'));
@@ -146,28 +149,28 @@ class CheckoutController extends Controller
 
         $item_details[] = [
             'id' => $orderId,
-            'price' => $price, 
+            'price' => $price,
             'quantity' => 1,
-            'name' => 'Payment for {$checkout->Camp->title} Camp'
+            'name' => "Payment for {$checkout->Camp->title} Camp"
         ];
 
         $userData = [
-            'first_name' => $checkout->User->name,
-            'last_name' => "",
-            'address' => $checkout->User->address,
-            'city' => '',
-            'postal_code' => '',
-            'phone' => $checkout->User->phone,
-            'country_code' => 'IDN',
+            "first_name" => $checkout->User->name,
+            "last_name" => "",
+            "address" => $checkout->User->address,
+            "city" => "",
+            "postal_code" => "",
+            "phone" => $checkout->User->phone,
+            "country_code" => "IDN",
         ];
 
         $customer_details = [
-            'first_name' => $checkout->User->name,
-            'last_name' => '',
-            'email' => $checkout->User->email,
-            'phone' => $checkout->User->phone,
-            'billing_address' => $userData,
-            'shipping_address' => $userData,
+            "first_name" => $checkout->User->name,
+            "last_name" => "",
+            "email" => $checkout->User->email,
+            "phone" => $checkout->User->phone,
+            "billing_address" => $userData,
+            "shipping_address" => $userData,
         ];
 
         $midtrans_params = [
@@ -177,20 +180,21 @@ class CheckoutController extends Controller
         ];
 
         try {
-            // Get snap payment apge URL
-            $paymentUrl = \Midtrans\Snap::createTransaction($params)->redirect_url;
+            // Get Snap Payment Page URL
+            $paymentUrl = \Midtrans\Snap::createTransaction($midtrans_params)->redirect_url;
             $checkout->midtrans_url = $paymentUrl;
             $checkout->save();
 
             return $paymentUrl;
-        } catch (\Throwable $th) {
+        } catch (Exception $e) {
             return false;
         }
     }
 
     public function midtransCallback(Request $request)
     {
-        $notif = new Midtrans\Notification();
+        $notif = $request->method() == 'POST' ? new Midtrans\Notification() : Midtrans\Transaction::status($request->order_id);
+        // $notif =  new Midtrans\Notification();
 
         $transaction_status = $notif->transaction_status;
         $fraud = $notif->fraud_status;
